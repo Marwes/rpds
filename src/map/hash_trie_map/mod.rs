@@ -25,14 +25,11 @@ use self::sparse_array_usize::SparseArrayUsize;
 type HashValue = u64;
 
 // TODO Use impl trait instead of this when available.
+pub type Iter<'a, K, V> = ::std::iter::Map<IterArc<'a, K, V>, fn(&'a Arc<Entry<K, V>>) -> (&'a K, &'a V)>;
 pub type IterKeys<'a, K, V>   = ::std::iter::Map<Iter<'a, K, V>, fn((&'a K, &V)) -> &'a K>;
 pub type IterValues<'a, K, V> = ::std::iter::Map<Iter<'a, K, V>, fn((&K, &'a V)) -> &'a V>;
 
-// TODO when const_fn is stabilized this can be a const.
-fn default_degree() -> u8 {
-    debug_assert!(8 * size_of::<usize>() <= u8::max_value() as usize);
-    8 * size_of::<usize>() as u8
-}
+const DEFAULT_DEGREE: u8 = 8 * size_of::<usize>() as u8;
 
 /// Creates a [`HashTrieMap`](map/hash_trie_map/struct.HashTrieMap.html) containing the given
 /// arguments:
@@ -562,7 +559,7 @@ impl<K, V> Clone for EntryWithHash<K, V>
 impl<K, V> HashTrieMap<K, V, RandomState>
     where K: Eq + Hash {
     pub fn new() -> HashTrieMap<K, V> {
-        HashTrieMap::new_with_degree(default_degree())
+        HashTrieMap::new_with_degree(DEFAULT_DEGREE)
     }
 
     pub fn new_with_degree(degree: u8) -> HashTrieMap<K, V> {
@@ -574,12 +571,12 @@ impl<K, V, H: BuildHasher> HashTrieMap<K, V, H>
     where K: Eq + Hash,
           H: Clone {
     pub fn new_with_hasher(hasher_builder: H) -> HashTrieMap<K, V, H> {
-        HashTrieMap::new_with_hasher_and_degree(hasher_builder, default_degree())
+        HashTrieMap::new_with_hasher_and_degree(hasher_builder, DEFAULT_DEGREE)
     }
 
     pub fn new_with_hasher_and_degree(hasher_builder: H, degree: u8) -> HashTrieMap<K, V, H> {
         assert!(degree.is_power_of_two(), "degree must be a power of two");
-        assert!(degree <= default_degree(), format!("degree must not exceed {}", default_degree()));
+        assert!(degree <= DEFAULT_DEGREE, format!("degree must not exceed {}", DEFAULT_DEGREE));
 
         HashTrieMap {
             root: Arc::new(Node::new_empty_branch()),
@@ -642,7 +639,11 @@ impl<K, V, H: BuildHasher> HashTrieMap<K, V, H>
     }
 
     pub fn iter(&self) -> Iter<K, V> {
-        Iter::new(self)
+        self.iter_arc().map(|e| (&e.key, &e.value))
+    }
+
+    fn iter_arc(&self) -> IterArc<K, V> {
+        IterArc::new(self)
     }
 
     pub fn keys(&self) -> IterKeys<K, V> {
@@ -750,7 +751,7 @@ impl<K, V, H> FromIterator<(K, V)> for HashTrieMap<K, V, H> where
 }
 
 #[derive(Debug)]
-pub struct Iter<'a, K: 'a, V: 'a> {
+pub struct IterArc<'a, K: 'a, V: 'a> {
     stack: Vec<IterStackElement<'a, K, V>>,
     size: usize,
 }
@@ -776,12 +777,12 @@ impl<'a, K, V> IterStackElement<'a, K, V>
         }
     }
 
-    fn current_elem(&mut self) -> &'a EntryWithHash<K, V> {
+    fn current_elem(&mut self) -> &'a Arc<Entry<K, V>> {
         match *self {
             IterStackElement::Branch(_) =>
                 panic!("called current element of a branch"),
-            IterStackElement::LeafSingle(entry) => entry,
-            IterStackElement::LeafCollision(ref mut iter) => iter.peek().unwrap(),
+            IterStackElement::LeafSingle(entry) => &entry.entry,
+            IterStackElement::LeafCollision(ref mut iter) => &iter.peek().unwrap().entry,
         }
     }
 
@@ -814,9 +815,9 @@ mod iter_utils {
     }
 }
 
-impl<'a, K, V> Iter<'a, K, V>
+impl<'a, K, V> IterArc<'a, K, V>
     where K: Eq + Hash {
-    fn new<H: BuildHasher + Clone>(map: &HashTrieMap<K, V, H>) -> Iter<K, V> {
+    fn new<H: BuildHasher + Clone>(map: &HashTrieMap<K, V, H>) -> IterArc<K, V> {
         let mut stack: Vec<IterStackElement<K, V>> =
             Vec::with_capacity(iter_utils::trie_max_height(map.degree) + 1);
 
@@ -824,7 +825,7 @@ impl<'a, K, V> Iter<'a, K, V>
             stack.push(IterStackElement::new(map.root.borrow()));
         }
 
-        let mut iter = Iter {
+        let mut iter = IterArc {
             stack,
             size: map.size(),
         };
@@ -868,20 +869,18 @@ impl<'a, K, V> Iter<'a, K, V>
         }
     }
 
-    fn current(&mut self) -> Option<(&'a K, &'a V)> {
+    fn current(&mut self) -> Option<&'a Arc<Entry<K, V>>> {
         self.stack.last_mut().map(|e| {
-            let entry = e.current_elem();
-
-            (entry.key(), entry.value())
+            e.current_elem()
         })
     }
 }
 
-impl<'a, K, V> Iterator for Iter<'a, K, V>
+impl<'a, K, V> Iterator for IterArc<'a, K, V>
     where K: Eq + Hash {
-    type Item = (&'a K, &'a V);
+    type Item = &'a Arc<Entry<K, V>>;
 
-    fn next(&mut self) -> Option<(&'a K, &'a V)> {
+    fn next(&mut self) -> Option<&'a Arc<Entry<K, V>>> {
         let current = self.current();
 
         self.advance();
@@ -898,7 +897,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V>
     }
 }
 
-impl<'a, K: Eq + Hash, V> ExactSizeIterator for Iter<'a, K, V> {}
+impl<'a, K: Eq + Hash, V> ExactSizeIterator for IterArc<'a, K, V> {}
 
 #[cfg(feature = "serde")]
 pub mod serde {
