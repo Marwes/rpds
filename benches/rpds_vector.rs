@@ -14,7 +14,7 @@ mod utils;
 use rpds::Vector;
 use utils::BencherNoDrop;
 use utils::iterations;
-use bencher::{Bencher, black_box};
+use bencher::{black_box, Bencher};
 
 fn vector_push_back(bench: &mut Bencher) -> () {
     let limit = iterations(100_000);
@@ -24,6 +24,20 @@ fn vector_push_back(bench: &mut Bencher) -> () {
 
         for i in 0..limit {
             vector = vector.push_back(i);
+        }
+
+        vector
+    });
+}
+
+fn vector_push_back_mut(bench: &mut Bencher) -> () {
+    let limit = iterations(100_000);
+
+    bench.iter_no_drop(|| {
+        let mut vector: Vector<usize> = Vector::new();
+
+        for i in 0..limit {
+            vector.push_back_mut(i);
         }
 
         vector
@@ -79,5 +93,12 @@ fn vector_iterate(bench: &mut Bencher) -> () {
     });
 }
 
-benchmark_group!(benches, vector_push_back, vector_drop_last, vector_get, vector_iterate);
+benchmark_group!(
+    benches,
+    vector_push_back,
+    vector_push_back_mut,
+    vector_drop_last,
+    vector_get,
+    vector_iterate
+);
 benchmark_main!(benches);
