@@ -13,8 +13,6 @@ use std::ops::Index;
 use std::iter::FromIterator;
 use std::mem::size_of;
 
-use utils::vec_utils::VecUtils;
-
 // TODO Use impl trait instead of this when available.
 pub type Iter<'a, T> = ::std::iter::Map<IterArc<'a, T>, fn(&Arc<T>) -> &T>;
 
@@ -189,34 +187,28 @@ impl<T> Node<T> {
     /// This will return `None` if the subtree after drop becomes empty (or it already was empty).
     /// Note that this will prune irrelevant branches, i.e. there will be no branches without
     /// elements under it.
-    fn drop_last(&self) -> Option<Node<T>> {
+    fn drop_last(&mut self) -> Option<()> {
         if self.is_empty() {
             return None;
         }
 
-        let new_node: Node<T> = match *self {
-            Node::Leaf(ref a) => {
-                let new_a = a.cloned_remove_last();
-
-                Node::Leaf(new_a)
+        match *self {
+            Node::Leaf(ref mut a) => {
+                a.pop();
             }
 
-            Node::Branch(ref a) => {
-                let last = a.last().unwrap();
+            Node::Branch(ref mut a) => match Arc::make_mut(a.last_mut().unwrap()).drop_last() {
+                Some(()) => (),
+                None => {
+                    a.pop();
+                }
+            },
+        }
 
-                let new_a = match last.drop_last() {
-                    Some(subtree) => a.cloned_set(a.len() - 1, Arc::new(subtree)),
-                    None => a.cloned_remove_last(),
-                };
-
-                Node::Branch(new_a)
-            }
-        };
-
-        if new_node.is_empty() {
+        if self.is_empty() {
             None
         } else {
-            Some(new_node)
+            Some(())
         }
     }
 }
@@ -388,40 +380,51 @@ impl<T> Vector<T> {
     /// one child.
     ///
     /// The trie must always have a compressed root.
-    fn compress_root(root: Node<T>) -> Arc<Node<T>> {
-        match root {
-            leaf @ Node::Leaf(_) => Arc::new(leaf),
-            branch @ Node::Branch(_) => if branch.is_singleton() {
-                if let Node::Branch(mut a) = branch {
-                    a.pop().unwrap()
+    #[cfg(test)]
+    fn compress_root(mut root: Node<T>) -> Arc<Node<T>> {
+        match Self::compress_root_mut(&mut root) {
+            Some(new_root) => new_root,
+            None => Arc::new(root),
+        }
+    }
+
+    fn compress_root_mut(root: &mut Node<T>) -> Option<Arc<Node<T>>> {
+        match *root {
+            Node::Leaf(_) => None,
+            Node::Branch(_) => if root.is_singleton() {
+                if let Node::Branch(ref mut a) = *root {
+                    a.pop()
                 } else {
                     unreachable!()
                 }
             } else {
-                Arc::new(branch)
+                None
             },
         }
     }
 
     pub fn drop_last(&self) -> Option<Vector<T>> {
+        let mut self_ = self.clone();
+        self_.drop_last_mut().map(|()| self_)
+    }
+
+    pub fn drop_last_mut(&mut self) -> Option<()> {
         if self.length == 0 {
             return None;
         }
 
-        let new_vector = match self.root.drop_last() {
-            None => Vector::new_with_bits(self.bits),
-            Some(root) => {
-                let new_root = Vector::compress_root(root);
-
-                Vector {
-                    root: new_root,
-                    bits: self.bits,
-                    length: self.length - 1,
-                }
-            }
+        let new_root = {
+            let root = Arc::make_mut(&mut self.root);
+            root.drop_last();
+            self.length -= 1;
+            Vector::compress_root_mut(root)
         };
 
-        Some(new_vector)
+        if let Some(new_root) = new_root {
+            self.root = new_root;
+        }
+
+        Some(())
     }
 
     #[inline]

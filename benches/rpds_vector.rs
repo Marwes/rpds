@@ -63,6 +63,25 @@ fn vector_drop_last(bench: &mut Bencher) -> () {
     });
 }
 
+fn vector_drop_last_mut(bench: &mut Bencher) -> () {
+    let limit = iterations(100_000);
+    let mut full_vector: Vector<usize> = Vector::new();
+
+    for i in 0..limit {
+        full_vector.push_back_mut(i);
+    }
+
+    bench.iter_no_drop(|| {
+        let mut vector: Vector<usize> = full_vector.clone();
+
+        for _ in 0..limit {
+            vector.drop_last_mut().unwrap();
+        }
+
+        vector
+    });
+}
+
 fn vector_get(bench: &mut Bencher) -> () {
     let limit = iterations(100_000);
     let mut vector: Vector<usize> = Vector::new();
@@ -98,6 +117,7 @@ benchmark_group!(
     vector_push_back,
     vector_push_back_mut,
     vector_drop_last,
+    vector_drop_last_mut,
     vector_get,
     vector_iterate
 );
