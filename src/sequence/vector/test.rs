@@ -10,7 +10,7 @@ mod node {
 
     #[test]
     fn test_new_empty_branch() -> () {
-        let node: Node<u32> = Node::new_empty_branch();
+        let node: Node<u32, Arc<()>> = Node::new_empty_branch();
 
         match node {
             Node::Branch(a) => {
@@ -23,7 +23,7 @@ mod node {
 
     #[test]
     fn test_new_empty_leaf() -> () {
-        let node: Node<u32> = Node::new_empty_leaf();
+        let node: Node<u32, Rc<()>> = Node::new_empty_leaf();
 
         match node {
             Node::Leaf(a) => {
@@ -36,10 +36,10 @@ mod node {
 
     #[test]
     fn test_drop_last_single_level() -> () {
-        let mut empty_leaf: Node<u32> = Node::new_empty_leaf();
-        let mut empty_branch: Node<u32> = Node::new_empty_branch();
-        let mut singleton_node: Node<u32> = Vector::new().push_back(0).root.as_ref().clone();
-        let mut one_level_node: Node<u32> = Vector::new()
+        let mut empty_leaf: Node<u32, Arc<()>> = Node::new_empty_leaf();
+        let mut empty_branch: Node<u32, Arc<()>> = Node::new_empty_branch();
+        let mut singleton_node: Node<u32, _> = Vector::new().push_back(0).root.as_ref().clone();
+        let mut one_level_node: Node<u32, _> = Vector::new()
             .push_back(0)
             .push_back(1)
             .root
@@ -55,14 +55,14 @@ mod node {
 
     #[test]
     fn test_drop_last_multi_level() -> () {
-        let mut node_three: Node<u32> = Vector::new_with_bits(1)
+        let mut node_three: Node<u32, _> = Vector::new_with_bits(1)
             .push_back(0)
             .push_back(1)
             .push_back(2)
             .root
             .as_ref()
             .clone();
-        let mut node_four: Node<u32> = Vector::new_with_bits(1)
+        let mut node_four: Node<u32, _> = Vector::new_with_bits(1)
             .push_back(0)
             .push_back(1)
             .push_back(2)
@@ -344,10 +344,10 @@ mod internal {
 
     #[test]
     fn test_compress_root() -> () {
-        let empty_leaf: Node<u32> = Node::new_empty_leaf();
-        let empty_branch: Node<u32> = Node::new_empty_branch();
-        let singleton_leaf: Node<u32> = Vector::new().push_back(0).root.as_ref().clone();
-        let compressed_branch: Node<u32> = Vector::new_with_bits(1)
+        let empty_leaf: Node<u32, _> = Node::new_empty_leaf();
+        let empty_branch: Node<u32, _> = Node::new_empty_branch();
+        let singleton_leaf: Node<u32, _> = Vector::new().push_back(0).root.as_ref().clone();
+        let compressed_branch: Node<u32, _> = Vector::new_with_bits(1)
             .push_back(0)
             .push_back(1)
             .push_back(3)

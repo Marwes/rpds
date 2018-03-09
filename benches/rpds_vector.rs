@@ -11,7 +11,10 @@ extern crate rpds;
 
 mod utils;
 
+use std::rc::Rc;
+
 use rpds::Vector;
+use rpds::sequence::vector::SharedVector;
 use utils::BencherNoDrop;
 use utils::iterations;
 use bencher::{black_box, Bencher};
@@ -30,11 +33,39 @@ fn vector_push_back(bench: &mut Bencher) -> () {
     });
 }
 
+fn vector_push_back_rc(bench: &mut Bencher) -> () {
+    let limit = iterations(100_000);
+
+    bench.iter_no_drop(|| {
+        let mut vector: SharedVector<usize, Rc<()>> = SharedVector::new();
+
+        for i in 0..limit {
+            vector = vector.push_back(i);
+        }
+
+        vector
+    });
+}
+
 fn vector_push_back_mut(bench: &mut Bencher) -> () {
     let limit = iterations(100_000);
 
     bench.iter_no_drop(|| {
         let mut vector: Vector<usize> = Vector::new();
+
+        for i in 0..limit {
+            vector.push_back_mut(i);
+        }
+
+        vector
+    });
+}
+
+fn vector_push_back_mut_rc(bench: &mut Bencher) -> () {
+    let limit = iterations(100_000);
+
+    bench.iter_no_drop(|| {
+        let mut vector: SharedVector<usize, Rc<()>> = SharedVector::new();
 
         for i in 0..limit {
             vector.push_back_mut(i);
@@ -115,7 +146,9 @@ fn vector_iterate(bench: &mut Bencher) -> () {
 benchmark_group!(
     benches,
     vector_push_back,
+    vector_push_back_rc,
     vector_push_back_mut,
+    vector_push_back_mut_rc,
     vector_drop_last,
     vector_drop_last_mut,
     vector_get,

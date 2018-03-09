@@ -13,8 +13,65 @@ use std::ops::Index;
 use std::iter::FromIterator;
 use std::mem::size_of;
 
+use std::rc::Rc;
+use std::ops::Deref;
+
+pub trait RefPtr: Clone + Deref {
+    fn new(value: Self::Target) -> Self;
+    fn make_mut(self_: &mut Self) -> &mut Self::Target
+    where
+        Self::Target: Clone;
+}
+
+impl<T> RefPtr for Rc<T> {
+    fn new(value: Self::Target) -> Self {
+        Rc::new(value)
+    }
+    fn make_mut(self_: &mut Self) -> &mut Self::Target
+    where
+        T: Clone,
+    {
+        Rc::make_mut(self_)
+    }
+}
+
+impl<T> RefPtr for Arc<T> {
+    fn new(value: Self::Target) -> Self {
+        Arc::new(value)
+    }
+    fn make_mut(self_: &mut Self) -> &mut Self::Target
+    where
+        T: Clone,
+    {
+        Arc::make_mut(self_)
+    }
+}
+
+pub trait Shared<T> {
+    type Ptr: RefPtr<Target = T>;
+
+    fn new(value: <Self::Ptr as Deref>::Target) -> Self::Ptr {
+        Self::Ptr::new(value)
+    }
+
+    fn make_mut(self_: &mut Self::Ptr) -> &mut <Self::Ptr as Deref>::Target
+    where
+        T: Clone,
+    {
+        Self::Ptr::make_mut(self_)
+    }
+}
+
+impl<T> Shared<T> for Rc<()> {
+    type Ptr = Rc<T>;
+}
+
+impl<T> Shared<T> for Arc<()> {
+    type Ptr = Arc<T>;
+}
+
 // TODO Use impl trait instead of this when available.
-pub type Iter<'a, T> = ::std::iter::Map<IterArc<'a, T>, fn(&Arc<T>) -> &T>;
+pub type Iter<'a, T, P> = ::std::iter::Map<IterArc<'a, T, P>, fn(&<P as Shared<T>>::Ptr) -> &T>;
 
 const DEFAULT_BITS: u8 = 5;
 
@@ -91,25 +148,70 @@ macro_rules! vector {
 /// This vector is implemented as described in
 /// [Understanding Persistent Vector Part 1](http://hypirion.com/musings/understanding-persistent-vector-pt-1)
 /// and [Understanding Persistent Vector Part 2](http://hypirion.com/musings/understanding-persistent-vector-pt-2).
-#[derive(Debug)]
-pub struct Vector<T> {
-    root: Arc<Node<T>>,
+pub struct SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    root: <P as Shared<Node<T, P>>>::Ptr,
     bits: u8,
     length: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Node<T> {
-    Branch(Vec<Arc<Node<T>>>),
-    Leaf(Vec<Arc<T>>),
+impl<T, P> ::std::fmt::Debug for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+    T: ::std::fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        unimplemented!()
+    }
 }
 
-impl<T> Node<T> {
-    fn new_empty_branch() -> Node<T> {
+pub type Vector<T> = SharedVector<T, Arc<()>>;
+
+#[doc(hidden)]
+pub enum Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    Branch(Vec<<P as Shared<Node<T, P>>>::Ptr>),
+    Leaf(Vec<<P as Shared<T>>::Ptr>),
+}
+
+impl<T, P> ::std::fmt::Debug for Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+    T: Display,
+{
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        unimplemented!()
+    }
+}
+
+impl<T: Eq, P> Eq for Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+}
+
+impl<T: PartialEq, P> PartialEq for Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn eq(&self, other: &Node<T, P>) -> bool {
+        unimplemented!()
+    }
+}
+
+impl<T, P> Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn new_empty_branch() -> Node<T, P> {
         Node::Branch(Vec::new())
     }
 
-    fn new_empty_leaf() -> Node<T> {
+    fn new_empty_leaf() -> Node<T, P> {
         Node::Leaf(Vec::new())
     }
 
@@ -120,7 +222,7 @@ impl<T> Node<T> {
             Node::Branch(ref a) => a[b].get(index, height - 1, bucket),
             Node::Leaf(ref a) => {
                 debug_assert_eq!(height, 0);
-                a[b].as_ref()
+                &a[b]
             }
         }
     }
@@ -132,10 +234,11 @@ impl<T> Node<T> {
             Node::Leaf(ref mut a) => {
                 debug_assert_eq!(height, 0, "cannot have a leaf at this height");
 
+                let value = <P as Shared<T>>::new(value);
                 if a.len() == b {
-                    a.push(Arc::new(value));
+                    a.push(value);
                 } else {
-                    a[b] = Arc::new(value);
+                    a[b] = value;
                 }
             }
 
@@ -143,7 +246,7 @@ impl<T> Node<T> {
                 debug_assert!(height > 0, "cannot have a branch at this height");
 
                 if let Some(subtree) = a.get_mut(b) {
-                    Arc::make_mut(subtree).assoc(value, height - 1, bucket);
+                    <P as Shared<Node<_, _>>>::make_mut(subtree).assoc(value, height - 1, bucket);
                     return;
                 }
                 let mut subtree = if height > 1 {
@@ -153,7 +256,7 @@ impl<T> Node<T> {
                 };
 
                 subtree.assoc(value, height - 1, bucket);
-                a.push(Arc::new(subtree));
+                a.push(<P as Shared<Node<_, _>>>::new(subtree));
             }
         }
     }
@@ -190,12 +293,14 @@ impl<T> Node<T> {
                 a.pop();
             }
 
-            Node::Branch(ref mut a) => match Arc::make_mut(a.last_mut().unwrap()).drop_last() {
-                Some(()) => (),
-                None => {
-                    a.pop();
+            Node::Branch(ref mut a) => {
+                match <P as Shared<Node<_, _>>>::Ptr::make_mut(a.last_mut().unwrap()).drop_last() {
+                    Some(()) => (),
+                    None => {
+                        a.pop();
+                    }
                 }
-            },
+            }
         }
 
         if self.is_empty() {
@@ -206,8 +311,11 @@ impl<T> Node<T> {
     }
 }
 
-impl<T> Clone for Node<T> {
-    fn clone(&self) -> Node<T> {
+impl<T, P> Clone for Node<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn clone(&self) -> Node<T, P> {
         match *self {
             Node::Branch(ref a) => Node::Branch(Vec::clone(a)),
             Node::Leaf(ref a) => Node::Leaf(Vec::clone(a)),
@@ -215,16 +323,19 @@ impl<T> Clone for Node<T> {
     }
 }
 
-impl<T> Vector<T> {
-    pub fn new() -> Vector<T> {
-        Vector::new_with_bits(DEFAULT_BITS)
+impl<T, P> SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    pub fn new() -> SharedVector<T, P> {
+        SharedVector::new_with_bits(DEFAULT_BITS)
     }
 
-    pub fn new_with_bits(bits: u8) -> Vector<T> {
+    pub fn new_with_bits(bits: u8) -> SharedVector<T, P> {
         assert!(bits > 0, "number of bits for the vector must be positive");
 
-        Vector {
-            root: Arc::new(Node::new_empty_leaf()),
+        SharedVector {
+            root: <P as Shared<Node<_, _>>>::new(Node::new_empty_leaf()),
             bits,
             length: 0,
         }
@@ -285,7 +396,7 @@ impl<T> Vector<T> {
         }
     }
 
-    pub fn set(&self, index: usize, v: T) -> Option<Vector<T>> {
+    pub fn set(&self, index: usize, v: T) -> Option<SharedVector<T, P>> {
         let mut self_ = self.clone();
         self_.set_mut(index, v).map(|()| self_)
     }
@@ -312,7 +423,8 @@ impl<T> Vector<T> {
 
         let height = self.height();
         let bits = self.bits;
-        Arc::make_mut(&mut self.root).assoc(v, height, |height| Self::bucket2(bits, index, height));
+        <P as Shared<Node<_, _>>>::make_mut(&mut self.root)
+            .assoc(v, height, |height| Self::bucket2(bits, index, height));
         let adds_item: bool = index >= self.length;
 
         self.bits = bits;
@@ -336,7 +448,7 @@ impl<T> Vector<T> {
         self.length == self.root_max_capacity()
     }
 
-    pub fn push_back(&self, v: T) -> Vector<T> {
+    pub fn push_back(&self, v: T) -> SharedVector<T, P> {
         let mut self_ = self.clone();
         self_.push_back_mut(v);
         self_
@@ -344,15 +456,15 @@ impl<T> Vector<T> {
 
     pub fn push_back_mut(&mut self, v: T) {
         if self.is_root_full() {
-            let mut new_root: Node<T> = Node::new_empty_branch();
+            let mut new_root: Node<T, P> = Node::new_empty_branch();
 
             match new_root {
-                Node::Branch(ref mut values) => values.push(Arc::clone(&self.root)),
+                Node::Branch(ref mut values) => values.push(self.root.clone()),
                 _ => unreachable!("expected a branch"),
             }
 
             let length = self.length;
-            self.root = Arc::new(new_root);
+            self.root = <P as Shared<Node<_, _>>>::new(new_root);
             self.length += 1;
 
             self.assoc(length, v)
@@ -367,14 +479,14 @@ impl<T> Vector<T> {
     ///
     /// The trie must always have a compressed root.
     #[cfg(test)]
-    fn compress_root(mut root: Node<T>) -> Arc<Node<T>> {
+    fn compress_root(mut root: Node<T, P>) -> <P as Shared<Node<T, P>>>::Ptr {
         match Self::compress_root_mut(&mut root) {
             Some(new_root) => new_root,
-            None => Arc::new(root),
+            None => <P as Shared<Node<_, _>>>::new(root),
         }
     }
 
-    fn compress_root_mut(root: &mut Node<T>) -> Option<Arc<Node<T>>> {
+    fn compress_root_mut(root: &mut Node<T, P>) -> Option<<P as Shared<Node<T, P>>>::Ptr> {
         match *root {
             Node::Leaf(_) => None,
             Node::Branch(_) => if root.is_singleton() {
@@ -389,7 +501,7 @@ impl<T> Vector<T> {
         }
     }
 
-    pub fn drop_last(&self) -> Option<Vector<T>> {
+    pub fn drop_last(&self) -> Option<SharedVector<T, P>> {
         let mut self_ = self.clone();
         self_.drop_last_mut().map(|()| self_)
     }
@@ -400,10 +512,10 @@ impl<T> Vector<T> {
         }
 
         let new_root = {
-            let root = Arc::make_mut(&mut self.root);
+            let root = <P as Shared<Node<_, _>>>::make_mut(&mut self.root);
             root.drop_last();
             self.length -= 1;
-            Vector::compress_root_mut(root)
+            SharedVector::compress_root_mut(root)
         };
 
         if let Some(new_root) = new_root {
@@ -423,16 +535,19 @@ impl<T> Vector<T> {
         self.len() == 0
     }
 
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<T, P> {
         self.iter_arc().map(|v| v.borrow())
     }
 
-    fn iter_arc(&self) -> IterArc<T> {
+    fn iter_arc(&self) -> IterArc<T, P> {
         IterArc::new(self)
     }
 }
 
-impl<T> Index<usize> for Vector<T> {
+impl<T, P> Index<usize> for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
     type Output = T;
 
     fn index(&self, index: usize) -> &T {
@@ -441,33 +556,52 @@ impl<T> Index<usize> for Vector<T> {
     }
 }
 
-impl<T> Default for Vector<T> {
-    fn default() -> Vector<T> {
-        Vector::new()
+impl<T, P> Default for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn default() -> SharedVector<T, P> {
+        Self::new()
     }
 }
 
-impl<T: PartialEq> PartialEq for Vector<T> {
-    fn eq(&self, other: &Vector<T>) -> bool {
+impl<T: PartialEq, P> PartialEq for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn eq(&self, other: &SharedVector<T, P>) -> bool {
         self.length == other.length && self.iter().eq(other.iter())
     }
 }
 
-impl<T: Eq> Eq for Vector<T> {}
+impl<T: Eq, P> Eq for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+}
 
-impl<T: PartialOrd<T>> PartialOrd<Vector<T>> for Vector<T> {
-    fn partial_cmp(&self, other: &Vector<T>) -> Option<Ordering> {
+impl<T: PartialOrd, P> PartialOrd for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn partial_cmp(&self, other: &SharedVector<T, P>) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<T: Ord> Ord for Vector<T> {
-    fn cmp(&self, other: &Vector<T>) -> Ordering {
+impl<T: Ord, P> Ord for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn cmp(&self, other: &SharedVector<T, P>) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<T: Hash> Hash for Vector<T> {
+impl<T: Hash, P> Hash for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
     fn hash<H: Hasher>(&self, state: &mut H) -> () {
         // Add the hash of length so that if two collections are added one after the other it doesn't
         // hash to the same thing as a single collection with the same elements in the same order.
@@ -479,19 +613,23 @@ impl<T: Hash> Hash for Vector<T> {
     }
 }
 
-impl<T> Clone for Vector<T> {
-    fn clone(&self) -> Vector<T> {
-        Vector {
-            root: Arc::clone(&self.root),
+impl<T, P> Clone for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn clone(&self) -> SharedVector<T, P> {
+        SharedVector {
+            root: self.root.clone(),
             bits: self.bits,
             length: self.length,
         }
     }
 }
 
-impl<T> Display for Vector<T>
+impl<T, P> Display for SharedVector<T, P>
 where
     T: Display,
+    P: Shared<Node<T, P>> + Shared<T>,
 {
     fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         let mut first = true;
@@ -510,24 +648,33 @@ where
     }
 }
 
-impl<'a, T> IntoIterator for &'a Vector<T> {
+impl<'a, T, P> IntoIterator for &'a SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
     type Item = &'a T;
-    type IntoIter = Iter<'a, T>;
+    type IntoIter = Iter<'a, T, P>;
 
-    fn into_iter(self) -> Iter<'a, T> {
+    fn into_iter(self) -> Iter<'a, T, P> {
         self.iter()
     }
 }
 
-impl<T> FromIterator<T> for Vector<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(into_iter: I) -> Vector<T> {
-        let mut vector = Vector::new();
+impl<T, P> FromIterator<T> for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(into_iter: I) -> SharedVector<T, P> {
+        let mut vector = SharedVector::new();
         vector.extend(into_iter);
         vector
     }
 }
 
-impl<T> Extend<T> for Vector<T> {
+impl<T, P> Extend<T> for SharedVector<T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         for elem in iter {
             self.push_back_mut(elem);
@@ -535,23 +682,32 @@ impl<T> Extend<T> for Vector<T> {
     }
 }
 
-pub struct IterArc<'a, T: 'a> {
-    vector: &'a Vector<T>,
+pub struct IterArc<'a, T: 'a, P>
+where
+    P: Shared<Node<T, P>> + Shared<T> + 'a,
+{
+    vector: &'a SharedVector<T, P>,
 
-    stack_forward: Option<Vec<IterStackElement<'a, T>>>,
-    stack_backward: Option<Vec<IterStackElement<'a, T>>>,
+    stack_forward: Option<Vec<IterStackElement<'a, T, P>>>,
+    stack_backward: Option<Vec<IterStackElement<'a, T, P>>>,
 
     left_index: usize,  // inclusive
     right_index: usize, // exclusive
 }
 
-struct IterStackElement<'a, T: 'a> {
-    node: &'a Node<T>,
+struct IterStackElement<'a, T: 'a, P>
+where
+    P: Shared<Node<T, P>> + Shared<T> + 'a,
+{
+    node: &'a Node<T, P>,
     index: isize,
 }
 
-impl<'a, T> IterStackElement<'a, T> {
-    fn new(node: &Node<T>, backwards: bool) -> IterStackElement<T> {
+impl<'a, T, P> IterStackElement<'a, T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn new(node: &Node<T, P>, backwards: bool) -> IterStackElement<T, P> {
         IterStackElement {
             node,
             index: if backwards {
@@ -562,14 +718,14 @@ impl<'a, T> IterStackElement<'a, T> {
         }
     }
 
-    fn current_node(&self) -> &'a Node<T> {
+    fn current_node(&self) -> &'a Node<T, P> {
         match *self.node {
-            Node::Branch(ref a) => a[self.index as usize].as_ref(),
+            Node::Branch(ref a) => &a[self.index as usize],
             Node::Leaf(_) => panic!("called current node of a branch"),
         }
     }
 
-    fn current_elem(&self) -> &'a Arc<T> {
+    fn current_elem(&self) -> &'a <P as Shared<T>>::Ptr {
         match *self.node {
             Node::Leaf(ref a) => &a[self.index as usize],
             Node::Branch(_) => panic!("called current element of a branch"),
@@ -589,8 +745,11 @@ impl<'a, T> IterStackElement<'a, T> {
     }
 }
 
-impl<'a, T> IterArc<'a, T> {
-    fn new(vector: &Vector<T>) -> IterArc<T> {
+impl<'a, T, P> IterArc<'a, T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn new(vector: &SharedVector<T, P>) -> IterArc<T, P> {
         IterArc {
             vector,
 
@@ -602,8 +761,8 @@ impl<'a, T> IterArc<'a, T> {
         }
     }
 
-    fn dig(stack: &mut Vec<IterStackElement<T>>, backwards: bool) -> () {
-        let next_node: &Node<T> = {
+    fn dig(stack: &mut Vec<IterStackElement<T, P>>, backwards: bool) -> () {
+        let next_node: &Node<T, P> = {
             let stack_top = stack.last().unwrap();
 
             if let Node::Leaf(_) = *stack_top.node {
@@ -626,7 +785,8 @@ impl<'a, T> IterArc<'a, T> {
         };
 
         if stack_field.is_none() {
-            let mut stack: Vec<IterStackElement<T>> = Vec::with_capacity(self.vector.height() + 1);
+            let mut stack: Vec<IterStackElement<T, P>> =
+                Vec::with_capacity(self.vector.height() + 1);
 
             stack.push(IterStackElement::new(self.vector.root.borrow(), backwards));
 
@@ -636,7 +796,7 @@ impl<'a, T> IterArc<'a, T> {
         }
     }
 
-    fn advance(stack: &mut Vec<IterStackElement<T>>, backwards: bool) -> () {
+    fn advance(stack: &mut Vec<IterStackElement<T, P>>, backwards: bool) -> () {
         match stack.pop() {
             Some(mut stack_element) => {
                 let finished = stack_element.advance(backwards);
@@ -654,7 +814,7 @@ impl<'a, T> IterArc<'a, T> {
     }
 
     #[inline]
-    fn current(stack: &[IterStackElement<'a, T>]) -> Option<&'a Arc<T>> {
+    fn current(stack: &[IterStackElement<'a, T, P>]) -> Option<&'a <P as Shared<T>>::Ptr> {
         stack.last().map(|e| e.current_elem())
     }
 
@@ -671,7 +831,7 @@ impl<'a, T> IterArc<'a, T> {
         }
     }
 
-    fn current_forward(&self) -> Option<&'a Arc<T>> {
+    fn current_forward(&self) -> Option<&'a <P as Shared<T>>::Ptr> {
         if self.non_empty() {
             IterArc::current(self.stack_forward.as_ref().unwrap())
         } else {
@@ -687,7 +847,7 @@ impl<'a, T> IterArc<'a, T> {
         }
     }
 
-    fn current_backward(&self) -> Option<&'a Arc<T>> {
+    fn current_backward(&self) -> Option<&'a <P as Shared<T>>::Ptr> {
         if self.non_empty() {
             IterArc::current(self.stack_backward.as_ref().unwrap())
         } else {
@@ -696,10 +856,13 @@ impl<'a, T> IterArc<'a, T> {
     }
 }
 
-impl<'a, T> Iterator for IterArc<'a, T> {
-    type Item = &'a Arc<T>;
+impl<'a, T, P> Iterator for IterArc<'a, T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    type Item = &'a <P as Shared<T>>::Ptr;
 
-    fn next(&mut self) -> Option<&'a Arc<T>> {
+    fn next(&mut self) -> Option<&'a <P as Shared<T>>::Ptr> {
         self.init_if_needed(false);
 
         let current = self.current_forward();
@@ -716,8 +879,11 @@ impl<'a, T> Iterator for IterArc<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for IterArc<'a, T> {
-    fn next_back(&mut self) -> Option<&'a Arc<T>> {
+impl<'a, T, P> DoubleEndedIterator for IterArc<'a, T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+    fn next_back(&mut self) -> Option<&'a <P as Shared<T>>::Ptr> {
         self.init_if_needed(true);
 
         let current = self.current_backward();
@@ -728,7 +894,11 @@ impl<'a, T> DoubleEndedIterator for IterArc<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for IterArc<'a, T> {}
+impl<'a, T, P> ExactSizeIterator for IterArc<'a, T, P>
+where
+    P: Shared<Node<T, P>> + Shared<T>,
+{
+}
 
 #[cfg(feature = "serde")]
 pub mod serde {
@@ -738,7 +908,7 @@ pub mod serde {
     use std::marker::PhantomData;
     use std::fmt;
 
-    impl<T> Serialize for Vector<T>
+    impl<T, P> Serialize for SharedVector<T, P>
     where
         T: Serialize,
     {
@@ -747,11 +917,11 @@ pub mod serde {
         }
     }
 
-    impl<'de, T> Deserialize<'de> for Vector<T>
+    impl<'de, T, P> Deserialize<'de> for SharedVector<T, P>
     where
         T: Deserialize<'de>,
     {
-        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Vector<T>, D::Error> {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<SharedVector<T>, D::Error> {
             deserializer.deserialize_seq(VectorVisitor {
                 phantom: PhantomData,
             })
@@ -766,17 +936,17 @@ pub mod serde {
     where
         T: Deserialize<'de>,
     {
-        type Value = Vector<T>;
+        type Value = SharedVector<T>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter.write_str("a sequence")
         }
 
-        fn visit_seq<A>(self, mut seq: A) -> Result<Vector<T>, A::Error>
+        fn visit_seq<A>(self, mut seq: A) -> Result<SharedVector<T>, A::Error>
         where
             A: SeqAccess<'de>,
         {
-            let mut vector = Vector::new();
+            let mut vector = SharedVector::new();
 
             while let Some(value) = seq.next_element()? {
                 vector.push_back_mut(value);
