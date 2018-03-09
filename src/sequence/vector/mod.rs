@@ -39,7 +39,7 @@ macro_rules! vector {
             #[allow(unused_mut)]
             let mut v = $crate::Vector::new();
             $(
-                v = v.push_back($e);
+                v.push_back_mut($e);
             )*
             v
         }
@@ -535,7 +535,7 @@ impl<T> FromIterator<T> for Vector<T> {
         let mut vector = Vector::new();
 
         for e in into_iter {
-            vector = vector.push_back(e);
+            vector.push_back_mut(e);
         }
 
         vector
@@ -786,7 +786,7 @@ pub mod serde {
             let mut vector = Vector::new();
 
             while let Some(value) = seq.next_element()? {
-                vector = vector.push_back(value);
+                vector.push_back_mut(value);
             }
 
             Ok(vector)
