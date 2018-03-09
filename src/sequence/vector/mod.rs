@@ -151,28 +151,18 @@ impl<T> Node<T> {
             Node::Branch(ref mut a) => {
                 debug_assert!(height > 0, "cannot have a branch at this height");
 
-                let subtree = match a.get_mut(b) {
-                    Some(subtree) => {
-                        Arc::make_mut(subtree).assoc(index, value, height - 1, bucket, degree);
-                        subtree.clone()
-                    }
-                    None => {
-                        let mut subtree = if height > 1 {
-                            Node::new_empty_branch()
-                        } else {
-                            Node::new_empty_leaf()
-                        };
-
-                        subtree.assoc(index, value, height - 1, bucket, degree);
-                        Arc::new(subtree)
-                    }
+                if let Some(subtree) = a.get_mut(b) {
+                    Arc::make_mut(subtree).assoc(index, value, height - 1, bucket, degree);
+                    return;
+                }
+                let mut subtree = if height > 1 {
+                    Node::new_empty_branch()
+                } else {
+                    Node::new_empty_leaf()
                 };
 
-                if a.len() == b {
-                    a.push(subtree);
-                } else {
-                    a[b] = subtree;
-                }
+                subtree.assoc(index, value, height - 1, bucket, degree);
+                a.push(Arc::new(subtree));
             }
         }
     }
