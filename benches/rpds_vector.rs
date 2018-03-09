@@ -19,8 +19,10 @@ use utils::BencherNoDrop;
 use utils::iterations;
 use bencher::{black_box, Bencher};
 
+const ITERATIONS: usize = 10_000;
+
 fn vector_push_back(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(ITERATIONS);
 
     bench.iter_no_drop(|| {
         let mut vector: Vector<usize> = Vector::new();
@@ -34,7 +36,7 @@ fn vector_push_back(bench: &mut Bencher) -> () {
 }
 
 fn vector_push_back_rc(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
 
     bench.iter_no_drop(|| {
         let mut vector: SharedVector<usize, Rc<()>> = SharedVector::new();
@@ -48,7 +50,7 @@ fn vector_push_back_rc(bench: &mut Bencher) -> () {
 }
 
 fn vector_push_back_mut(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
 
     bench.iter_no_drop(|| {
         let mut vector: Vector<usize> = Vector::new();
@@ -62,7 +64,7 @@ fn vector_push_back_mut(bench: &mut Bencher) -> () {
 }
 
 fn vector_push_back_mut_rc(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
 
     bench.iter_no_drop(|| {
         let mut vector: SharedVector<usize, Rc<()>> = SharedVector::new();
@@ -76,7 +78,7 @@ fn vector_push_back_mut_rc(bench: &mut Bencher) -> () {
 }
 
 fn vector_drop_last(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
     let mut full_vector: Vector<usize> = Vector::new();
 
     for i in 0..limit {
@@ -95,7 +97,7 @@ fn vector_drop_last(bench: &mut Bencher) -> () {
 }
 
 fn vector_drop_last_mut(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
     let mut full_vector: Vector<usize> = Vector::new();
 
     for i in 0..limit {
@@ -114,7 +116,7 @@ fn vector_drop_last_mut(bench: &mut Bencher) -> () {
 }
 
 fn vector_get(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
     let mut vector: Vector<usize> = Vector::new();
 
     for i in 0..limit {
@@ -129,7 +131,7 @@ fn vector_get(bench: &mut Bencher) -> () {
 }
 
 fn vector_iterate(bench: &mut Bencher) -> () {
-    let limit = iterations(100_000);
+    let limit = iterations(10_000);
     let mut vector: Vector<usize> = Vector::new();
 
     for i in 0..limit {
