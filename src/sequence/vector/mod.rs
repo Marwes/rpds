@@ -131,7 +131,6 @@ impl<T> Node<T> {
         value: T,
         height: usize,
         bucket: F,
-        degree: usize,
     ) {
         let b = bucket(index, height);
 
@@ -150,7 +149,7 @@ impl<T> Node<T> {
                 debug_assert!(height > 0, "cannot have a branch at this height");
 
                 if let Some(subtree) = a.get_mut(b) {
-                    Arc::make_mut(subtree).assoc(index, value, height - 1, bucket, degree);
+                    Arc::make_mut(subtree).assoc(index, value, height - 1, bucket);
                     return;
                 }
                 let mut subtree = if height > 1 {
@@ -159,7 +158,7 @@ impl<T> Node<T> {
                     Node::new_empty_leaf()
                 };
 
-                subtree.assoc(index, value, height - 1, bucket, degree);
+                subtree.assoc(index, value, height - 1, bucket);
                 a.push(Arc::new(subtree));
             }
         }
@@ -318,15 +317,10 @@ impl<T> Vector<T> {
         );
 
         let height = self.height();
-        let degree = self.degree();
         let bits = self.bits;
-        Arc::make_mut(&mut self.root).assoc(
-            index,
-            v,
-            height,
-            |index, height| Self::bucket2(bits, index, height),
-            degree,
-        );
+        Arc::make_mut(&mut self.root).assoc(index, v, height, |index, height| {
+            Self::bucket2(bits, index, height)
+        });
         let adds_item: bool = index >= self.length;
 
         self.bits = bits;
