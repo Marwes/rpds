@@ -533,12 +533,16 @@ impl<'a, T> IntoIterator for &'a Vector<T> {
 impl<T> FromIterator<T> for Vector<T> {
     fn from_iter<I: IntoIterator<Item = T>>(into_iter: I) -> Vector<T> {
         let mut vector = Vector::new();
-
-        for e in into_iter {
-            vector.push_back_mut(e);
-        }
-
+        vector.extend(into_iter);
         vector
+    }
+}
+
+impl<T> Extend<T> for Vector<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for elem in iter {
+            self.push_back_mut(elem);
+        }
     }
 }
 
