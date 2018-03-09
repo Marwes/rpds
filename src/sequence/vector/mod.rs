@@ -388,17 +388,17 @@ impl<T> Vector<T> {
     /// one child.
     ///
     /// The trie must always have a compressed root.
-    fn compress_root(root: Node<T>) -> Node<T> {
+    fn compress_root(root: Node<T>) -> Arc<Node<T>> {
         match root {
-            leaf @ Node::Leaf(_) => leaf,
+            leaf @ Node::Leaf(_) => Arc::new(leaf),
             branch @ Node::Branch(_) => if branch.is_singleton() {
-                if let Node::Branch(a) = branch {
-                    Node::clone(a[0].as_ref())
+                if let Node::Branch(mut a) = branch {
+                    a.pop().unwrap()
                 } else {
                     unreachable!()
                 }
             } else {
-                branch
+                Arc::new(branch)
             },
         }
     }
@@ -411,10 +411,10 @@ impl<T> Vector<T> {
         let new_vector = match self.root.drop_last() {
             None => Vector::new_with_bits(self.bits),
             Some(root) => {
-                let new_root: Node<T> = Vector::compress_root(root);
+                let new_root = Vector::compress_root(root);
 
                 Vector {
-                    root: Arc::new(new_root),
+                    root: new_root,
                     bits: self.bits,
                     length: self.length - 1,
                 }

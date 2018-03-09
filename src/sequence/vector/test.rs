@@ -368,19 +368,19 @@ mod internal {
             (Node::Branch(a_branch), leaf)
         };
 
-        assert_eq!(empty_leaf.clone(), Vector::compress_root(empty_leaf));
-        assert_eq!(empty_branch.clone(), Vector::compress_root(empty_branch));
+        assert_eq!(empty_leaf.clone(), *Vector::compress_root(empty_leaf));
+        assert_eq!(empty_branch.clone(), *Vector::compress_root(empty_branch));
         assert_eq!(
             singleton_leaf.clone(),
-            Vector::compress_root(singleton_leaf)
+            *Vector::compress_root(singleton_leaf)
         );
         assert_eq!(
             compressed_branch.clone(),
-            Vector::compress_root(compressed_branch)
+            *Vector::compress_root(compressed_branch)
         );
         assert_eq!(
             uncompressed_branch_leaf,
-            Vector::compress_root(uncompressed_branch)
+            *Vector::compress_root(uncompressed_branch)
         );
     }
 
